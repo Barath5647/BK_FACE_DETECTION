@@ -1,5 +1,6 @@
-cv2
+streamlit
+opencv-python
 numpy
-tensorflow.keras.models
-load_model
-PIL
+tensorflow
+Pillow
+scikit-learn
