@@ -4,6 +4,14 @@ import numpy as np
 from tensorflow.keras.models import load_model
 from PIL import Image
 
+# --- Monkey-patch InputLayer to accept 'batch_shape' argument in TF 2.12+ ---
+_orig_init = InputLayer.__init__
+def _patched_init(self, *args, **kwargs):
+    if 'batch_shape' in kwargs:
+        kwargs['batch_input_shape'] = kwargs.pop('batch_shape')
+    return _orig_init(self, *args, **kwargs)
+InputLayer.__init__ = _patched_init
+
 # Define image dimensions (should be the same as used during training)
 IMG_SIZE = (64, 64)  # This should match the image size used during training
 
