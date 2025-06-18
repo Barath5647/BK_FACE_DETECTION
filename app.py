@@ -22,6 +22,7 @@ IMG_SIZE = (64, 64)  # This should match the image size used during training
 model = load_model(
     'cnn_model.h5',
     custom_objects={'DTypePolicy': Policy}
+    compile=False
 )
 
 
