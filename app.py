@@ -154,78 +154,111 @@
 #     bgr_arr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 #     st.write(f"**Eye status:** {eye_status(bgr_arr)}")
 
-
 import streamlit as st
 import cv2
 import numpy as np
-from tensorflow.keras.layers import InputLayer
+import mediapipe as mp
 from tensorflow.keras.models import load_model
-from tensorflow.keras.utils import get_file, custom_object_scope, register_keras_serializable
-from tensorflow.keras.mixed_precision import Policy as DTypePolicy
-from keras.saving import object_registration  # <-- new
 from PIL import Image
+import tempfile
+import os
 
-# --- 1) Safe registration ---
-if "Custom>DTypePolicy" not in object_registration._GLOBAL_CUSTOM_OBJECTS:
-    register_keras_serializable(package="Custom", name="DTypePolicy")(DTypePolicy)
-
-# --- 2) Monkey-patch InputLayer for TF 2.12+ ---
-_orig_init = InputLayer.__init__
-def _patched_init(self, *args, **kwargs):
-    if "batch_shape" in kwargs:
-        kwargs["batch_input_shape"] = kwargs.pop("batch_shape")
-    return _orig_init(self, *args, **kwargs)
-InputLayer.__init__ = _patched_init
-
-# --- 3) Load or download model ---
-MODEL_FILENAME = "cnn_model.h5"
-MODEL_URL = (
-    "https://raw.githubusercontent.com/"
-    "Barath5647/BK_FACE_DETECTION/main/cnn_model.h5"
-)
-
-with custom_object_scope({"DTypePolicy": DTypePolicy}):
-    try:
-        model = load_model(MODEL_FILENAME, compile=False)
-    except (OSError, IOError):
-        path = get_file(MODEL_FILENAME, MODEL_URL, cache_subdir=".")
-        model = load_model(path, compile=False)
-
-# --- 4) Preprocessing ---
+# Constants
 IMG_SIZE = (64, 64)
-def preprocess_image(img: Image.Image) -> np.ndarray:
-    arr = np.array(img)
-    bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-    resized = cv2.resize(bgr, IMG_SIZE)
-    normed = resized.astype("float32") / 255.0
-    return np.expand_dims(normed, axis=0)
+MODEL_FILENAME = "cnn_model.h5"
+MODEL_URL = "https://github.com/Barath5647/BK_FACE_DETECTION/raw/main/cnn_model.h5"
 
-# --- 5) Streamlit UI ---
-st.title("Emotion Detection from Image")
-st.write("Upload an image to predict its emotion and check eye status.")
+# Download model if not present
+if not os.path.exists(MODEL_FILENAME):
+    import tensorflow as tf
+    MODEL_FILENAME = tf.keras.utils.get_file(MODEL_FILENAME, MODEL_URL, cache_subdir='.')
 
-uploaded = st.file_uploader("Choose an image...", type=["jpg", "png"])
-if uploaded:
-    st.image(uploaded, caption="Uploaded Image", use_container_width=True)
-    img = Image.open(uploaded)
-    batch = preprocess_image(img)
+# Load model
+model = load_model(MODEL_FILENAME, compile=False)
 
-    # Predict emotion
-    preds = model.predict(batch)[0]
-    idx  = np.argmax(preds)
-    labels = ["Happy", "Sad", "Neutral", "Angry"]
-    st.write(f"**Emotion:** {labels[idx]} ({preds[idx]:.2f} confidence)")
+# Initialize Mediapipe Face Mesh
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1)
 
+# Eye landmarks
+RIGHT_EYE = [33, 133, 160, 159, 158, 157, 173, 153]
+LEFT_EYE  = [362, 263, 387, 386, 385, 384, 398, 382]
+
+# Functions
+def preprocess_image(image):
+    img = np.array(image)
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    img = cv2.resize(img, IMG_SIZE)
+    img = img.astype('float32') / 255.0
+    img = np.expand_dims(img, axis=0)
+    return img
+
+def eye_aspect_ratio(eye_points):
+    # Simple vertical distance calculation for demo
+    top = eye_points[2][1] + eye_points[3][1]
+    bottom = eye_points[6][1] + eye_points[7][1]
+    left = eye_points[0][0]
+    right = eye_points[4][0]
+    
+    vertical = abs((top - bottom) / 2.0)
+    horizontal = abs(right - left)
+    
+    if horizontal == 0:
+        return 0
+    
+    ratio = vertical / horizontal
+    return ratio
+
+def detect_eye_status(image):
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    results = face_mesh.process(rgb_image)
+    
+    if not results.multi_face_landmarks:
+        return "No face detected"
+    
+    ih, iw, _ = image.shape
+    for face_landmarks in results.multi_face_landmarks:
+        right_eye_points = [(int(face_landmarks.landmark[idx].x * iw), 
+                             int(face_landmarks.landmark[idx].y * ih)) for idx in RIGHT_EYE]
+        left_eye_points  = [(int(face_landmarks.landmark[idx].x * iw), 
+                             int(face_landmarks.landmark[idx].y * ih)) for idx in LEFT_EYE]
+        
+        right_ratio = eye_aspect_ratio(right_eye_points)
+        left_ratio = eye_aspect_ratio(left_eye_points)
+        
+        threshold = 0.2  # You can tune this
+        
+        right_status = "Open" if right_ratio > threshold else "Closed"
+        left_status  = "Open" if left_ratio > threshold else "Closed"
+        
+        return f"Right Eye: {right_status}, Left Eye: {left_status}"
+    
+    return "No eyes detected"
+
+# --- Streamlit UI ---
+st.title("Emotion Detection + Eye Status (Mediapipe FaceMesh)")
+st.write("Upload an image to predict emotion and detect eye status.")
+
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+
+if uploaded_file is not None:
+    image = Image.open(uploaded_file)
+    st.image(image, caption="Uploaded Image", use_container_width=True)
+    
+    # Convert PIL to OpenCV
+    img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    
+    # Emotion prediction
+    processed_image = preprocess_image(image)
+    predictions = model.predict(processed_image)
+    predicted_class_index = np.argmax(predictions)
+    class_labels = ['Happy', 'Sad', 'Neutral', 'Angry']  # Adjust if needed
+    predicted_class = class_labels[predicted_class_index]
+    
     # Eye status
-    gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
-    face_c = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    eye_c  = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
-    faces = face_c.detectMultiScale(gray, 1.1, 5)
-
-    if len(faces) == 0:
-        st.write("No face detected.")
-    else:
-        x, y, w, h = faces[0]
-        eyes = eye_c.detectMultiScale(gray[y:y+h, x:x+w])
-        st.write("Eye is open." if len(eyes) > 0 else "Eye is closed.")
-
+    eye_status = detect_eye_status(img_cv)
+    
+    # Results
+    st.header("Results:")
+    st.write(f"**Emotion:** {predicted_class} ({predictions[0][predicted_class_index]:.2f})")
+    st.write(f"**Eye Status:** {eye_status}")
