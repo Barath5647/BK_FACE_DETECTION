@@ -160,8 +160,12 @@ import cv2
 import numpy as np
 from tensorflow.keras.layers import InputLayer
 from tensorflow.keras.models import load_model
-from tensorflow.keras.utils import get_file
+from tensorflow.keras.utils import get_file, custom_object_scope, register_keras_serializable
+from tensorflow.keras.mixed_precision import Policy
 from PIL import Image
+
+# --- Register mixed-precision policy for model deserialization ---
+register_keras_serializable(package="Custom", name="DTypePolicy")(Policy)
 
 # --- Monkey-patch InputLayer to accept 'batch_shape' argument in TF 2.12+ ---
 _orig_init = InputLayer.__init__
@@ -176,16 +180,21 @@ InputLayer.__init__ = _patched_init
 # Define image dimensions (should match training)
 IMG_SIZE = (64, 64)
 
-# Ensure model is available locally; downloads if missing
+# Ensure model is available locally; download if missing
 MODEL_FILENAME = 'cnn_model.h5'
 MODEL_URL = 'https://raw.githubusercontent.com/Barath5647/BK_FACE_DETECTION/main/cnn_model.h5'
 
+# Load model within custom object scope to handle DTypePolicy
 try:
     model = load_model(MODEL_FILENAME, compile=False)
 except (OSError, IOError):
-    # Download from GitHub
     path = get_file(MODEL_FILENAME, MODEL_URL, cache_subdir='.')
-    model = load_model(path, compile=False)
+    with custom_object_scope({'DTypePolicy': Policy}):
+        model = load_model(path, compile=False)
+else:
+    # If loaded locally, still ensure custom scope
+    with custom_object_scope({'DTypePolicy': Policy}):
+        model = load_model(MODEL_FILENAME, compile=False)
 
 # Preprocess function
 def preprocess_image(image: Image.Image) -> np.ndarray:
@@ -217,10 +226,11 @@ def check_eye_status(image_bgr: np.ndarray) -> str:
 st.title("Emotion & Eye Status Detection")
 st.write("Upload an image to predict emotion and eye status.")
 
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png"])
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png"] )
 if uploaded_file:
     image = Image.open(uploaded_file)
     st.image(image, caption="Uploaded Image", use_container_width=True)
+    
     processed = preprocess_image(image)
     preds = model.predict(processed)
     idx = int(np.argmax(preds))
@@ -229,7 +239,6 @@ if uploaded_file:
     probability = float(preds[0][idx])
     st.write(f"Predicted Emotion: **{emotion}** ({probability:.2f})")
 
-    # Prepare BGR image for eye checker
     img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
     status = check_eye_status(img_bgr)
     st.write(f"Eye Status: **{status}**")
