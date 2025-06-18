@@ -161,84 +161,69 @@ import numpy as np
 from tensorflow.keras.layers import InputLayer
 from tensorflow.keras.models import load_model
 from tensorflow.keras.utils import get_file, custom_object_scope, register_keras_serializable
-from tensorflow.keras.mixed_precision import Policy
+from tensorflow.keras.mixed_precision import Policy as DTypePolicy
 from PIL import Image
 
-# --- Register mixed-precision policy for model deserialization ---
-register_keras_serializable(package="Custom", name="DTypePolicy")(Policy)
+# --- Register DTypePolicy once so Keras can (de)serialize it ---
+register_keras_serializable(package="Custom", name="DTypePolicy")(DTypePolicy)
 
-# --- Monkey-patch InputLayer to accept 'batch_shape' argument in TF 2.12+ ---
+# --- Monkey‑patch InputLayer to accept 'batch_shape' in TF 2.12+ ---
 _orig_init = InputLayer.__init__
-
 def _patched_init(self, *args, **kwargs):
     if 'batch_shape' in kwargs:
         kwargs['batch_input_shape'] = kwargs.pop('batch_shape')
     return _orig_init(self, *args, **kwargs)
-
 InputLayer.__init__ = _patched_init
 
-# Define image dimensions (should match training)
+# Define image size (must match your training)
 IMG_SIZE = (64, 64)
 
-# Ensure model is available locally; download if missing
-MODEL_FILENAME = 'cnn_model.h5'
-MODEL_URL = 'https://raw.githubusercontent.com/Barath5647/BK_FACE_DETECTION/main/cnn_model.h5'
+# Model filename and remote URL
+MODEL_FILENAME = "cnn_model.h5"
+MODEL_URL = (
+    "https://raw.githubusercontent.com"
+    "/Barath5647/BK_FACE_DETECTION/main/cnn_model.h5"
+)
 
-# Load model within custom object scope to handle DTypePolicy
-try:
-    model = load_model(MODEL_FILENAME, compile=False)
-except (OSError, IOError):
-    path = get_file(MODEL_FILENAME, MODEL_URL, cache_subdir='.')
-    with custom_object_scope({'DTypePolicy': Policy}):
-        model = load_model(path, compile=False)
-else:
-    # If loaded locally, still ensure custom scope
-    with custom_object_scope({'DTypePolicy': Policy}):
+# Load model with fallback to download
+with custom_object_scope({"DTypePolicy": DTypePolicy}):
+    try:
         model = load_model(MODEL_FILENAME, compile=False)
+    except (OSError, IOError):
+        path = get_file(MODEL_FILENAME, MODEL_URL, cache_subdir=".")
+        model = load_model(path, compile=False)
 
-# Preprocess function
+# Preprocessing helper
 def preprocess_image(image: Image.Image) -> np.ndarray:
     img = np.array(image)
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     img = cv2.resize(img, IMG_SIZE)
-    img = img.astype('float32') / 255.0
-    img = np.expand_dims(img, axis=0)
-    return img
-
-# Eye status detector
-def check_eye_status(image_bgr: np.ndarray) -> str:
-    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-    face_cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    eye_cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + 'haarcascade_eye.xml')
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1,
-                                          minNeighbors=5, minSize=(30, 30))
-    if len(faces) == 0:
-        return "No face detected."
-    for (x, y, w, h) in faces:
-        face_region = gray[y:y+h, x:x+w]
-        eyes = eye_cascade.detectMultiScale(face_region)
-        return "Eye is open." if len(eyes) > 0 else "Eye is closed."
-    return "No eyes detected."
+    img = img.astype("float32") / 255.0
+    return np.expand_dims(img, axis=0)
 
 # Streamlit UI
-st.title("Emotion & Eye Status Detection")
-st.write("Upload an image to predict emotion and eye status.")
+st.title("Emotion Detection from Image")
+st.write("Upload an image to predict its emotion.")
 
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png"] )
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png"])
 if uploaded_file:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Uploaded Image", use_container_width=True)
-    
-    processed = preprocess_image(image)
-    preds = model.predict(processed)
-    idx = int(np.argmax(preds))
-    labels = ['Happy', 'Sad', 'Neutral', 'Angry']
-    emotion = labels[idx] if idx < len(labels) else str(idx)
-    probability = float(preds[0][idx])
-    st.write(f"Predicted Emotion: **{emotion}** ({probability:.2f})")
+    st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
+    img = Image.open(uploaded_file)
+    batch = preprocess_image(img)
 
-    img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    status = check_eye_status(img_bgr)
-    st.write(f"Eye Status: **{status}**")
+    preds = model.predict(batch)[0]
+    idx = np.argmax(preds)
+    labels = ["Happy", "Sad", "Neutral", "Angry"]
+    st.write(f"**Prediction:** {labels[idx]} ({preds[idx]:.2f} confidence)")
+
+    # Simple eye‑status check
+    gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
+    face_c = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    eye_c  = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
+    faces = face_c.detectMultiScale(gray, 1.1, 5)
+    if len(faces)==0:
+        st.write("No face detected.")
+    else:
+        x,y,w,h = faces[0]
+        eyes = eye_c.detectMultiScale(gray[y:y+h, x:x+w])
+        st.write("Eye is open." if len(eyes)>0 else "Eye is closed.")
