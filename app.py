@@ -4,6 +4,7 @@ import numpy as np
 from tensorflow.keras.layers import InputLayer
 from tensorflow.keras.models import load_model
 from tensorflow.keras.mixed_precision import Policy
+from keras.utils import custom_object_scope
 from PIL import Image
 
 # --- Monkey-patch InputLayer to accept 'batch_shape' argument in TF 2.12+ ---
@@ -19,10 +20,9 @@ IMG_SIZE = (64, 64)  # This should match the image size used during training
 
 # Load the trained model (make sure the model is in the same directory or provide the path)
 #model = load_model('cnn_model.h5')
-model = load_model(
-    'cnn_model.h5',
-    compile=False  # skip optimizer
-)
+with custom_object_scope({'DTypePolicy': DTypePolicy}):
+    model = load_model('cnn_model.h5', compile=False)
+
 
 
 # Function to preprocess the image
