@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import cv2
 import numpy as np
@@ -15,50 +16,53 @@ def _patched_init(self, *args, **kwargs):
     return _orig_init(self, *args, **kwargs)
 InputLayer.__init__ = _patched_init
 
-# Image size used at training
 IMG_SIZE = (64, 64)
+MODEL_PATH = "cnn_model.h5"
 
-# Load model inside a scope that knows "DTypePolicy" → Policy
+# Check for model file
+if not os.path.exists(MODEL_PATH):
+    st.error(f"❌ Model file not found at `{MODEL_PATH}`. Please upload it to the app directory.")
+    st.stop()
+
+# Load model with DTypePolicy in scope
 with custom_object_scope({"DTypePolicy": Policy}):
-    model = load_model("cnn_model.h5", compile=False)
+    model = load_model(MODEL_PATH, compile=False)
 
 def preprocess_image(img: Image.Image) -> np.ndarray:
-    """Convert to BGR, resize, normalize, add batch axis."""
     arr = np.array(img)
     bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
     resized = cv2.resize(bgr, IMG_SIZE)
     normed = resized.astype("float32") / 255.0
     return np.expand_dims(normed, axis=0)
 
+def eye_status(bgr_img: np.ndarray) -> str:
+    gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
+    fc = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    ec = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
+    faces = fc.detectMultiScale(gray, 1.1, 5)
+    if not len(faces):
+        return "No face detected."
+    for (x, y, w, h) in faces:
+        roi = gray[y : y + h, x : x + w]
+        eyes = ec.detectMultiScale(roi)
+        return "Eye open." if len(eyes) else "Eye closed."
+    return "No eyes found."
+
 st.title("Emotion Detection from Image")
-st.write("Upload a .jpg or .png to see its predicted emotion.")
+st.write("Upload a .jpg or .png and get its emotion + eye status.")
 
 uploaded = st.file_uploader("Choose an image...", type=["jpg", "png"])
 if uploaded:
     img = Image.open(uploaded)
-    st.image(img, caption="Your image", use_column_width=True)
+    st.image(img, use_container_width=True, caption="Your uploaded image")
 
+    # Predict emotion
     batch = preprocess_image(img)
     preds = model.predict(batch)[0]
     idx = int(np.argmax(preds))
     labels = ["Happy", "Sad", "Neutral", "Angry"]
-    st.write(f"**Predicted:** {labels[idx]}  — {preds[idx]:.2f}")
+    st.write(f"**Predicted emotion:** {labels[idx]} — {preds[idx]:.2f}")
 
-    # Optional: detect if eyes are open/closed
-    def eye_status(bgr_img: np.ndarray) -> str:
-        gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
-        fc = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        )
-        ec = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
-        faces = fc.detectMultiScale(gray, 1.1, 5)
-        if len(faces) == 0:
-            return "No face detected."
-        for (x, y, w, h) in faces:
-            roi = gray[y : y + h, x : x + w]
-            eyes = ec.detectMultiScale(roi)
-            return "Eye open." if len(eyes) > 0 else "Eye closed."
-        return "No eyes found."
-
+    # Eye status
     bgr_arr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
     st.write(f"**Eye status:** {eye_status(bgr_arr)}")
