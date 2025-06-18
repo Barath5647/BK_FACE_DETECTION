@@ -162,12 +162,14 @@ from tensorflow.keras.layers import InputLayer
 from tensorflow.keras.models import load_model
 from tensorflow.keras.utils import get_file, custom_object_scope, register_keras_serializable
 from tensorflow.keras.mixed_precision import Policy as DTypePolicy
+from keras.saving import object_registration  # <-- new
 from PIL import Image
 
-# --- 1) Register DTypePolicy once so Keras can serialize/deserialize it ---
-register_keras_serializable(package="Custom", name="DTypePolicy")(DTypePolicy)
+# --- 1) Safe registration ---
+if "Custom>DTypePolicy" not in object_registration._GLOBAL_CUSTOM_OBJECTS:
+    register_keras_serializable(package="Custom", name="DTypePolicy")(DTypePolicy)
 
-# --- 2) Monkey‑patch InputLayer to accept `batch_shape` in TF 2.12+ ---
+# --- 2) Monkey-patch InputLayer for TF 2.12+ ---
 _orig_init = InputLayer.__init__
 def _patched_init(self, *args, **kwargs):
     if "batch_shape" in kwargs:
@@ -175,7 +177,7 @@ def _patched_init(self, *args, **kwargs):
     return _orig_init(self, *args, **kwargs)
 InputLayer.__init__ = _patched_init
 
-# --- 3) Model-loading with local fallback to GitHub download ---
+# --- 3) Load or download model ---
 MODEL_FILENAME = "cnn_model.h5"
 MODEL_URL = (
     "https://raw.githubusercontent.com/"
@@ -189,7 +191,7 @@ with custom_object_scope({"DTypePolicy": DTypePolicy}):
         path = get_file(MODEL_FILENAME, MODEL_URL, cache_subdir=".")
         model = load_model(path, compile=False)
 
-# --- 4) Image preprocessing helper ---
+# --- 4) Preprocessing ---
 IMG_SIZE = (64, 64)
 def preprocess_image(img: Image.Image) -> np.ndarray:
     arr = np.array(img)
@@ -198,7 +200,7 @@ def preprocess_image(img: Image.Image) -> np.ndarray:
     normed = resized.astype("float32") / 255.0
     return np.expand_dims(normed, axis=0)
 
-# --- 5) Streamlit app UI ---
+# --- 5) Streamlit UI ---
 st.title("Emotion Detection from Image")
 st.write("Upload an image to predict its emotion and check eye status.")
 
@@ -214,7 +216,7 @@ if uploaded:
     labels = ["Happy", "Sad", "Neutral", "Angry"]
     st.write(f"**Emotion:** {labels[idx]} ({preds[idx]:.2f} confidence)")
 
-    # Check eye status
+    # Eye status
     gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
     face_c = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
     eye_c  = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
@@ -224,5 +226,6 @@ if uploaded:
         st.write("No face detected.")
     else:
         x, y, w, h = faces[0]
-        eyes = eye_c.detectMultiScale(gray[y : y+h, x : x+w])
+        eyes = eye_c.detectMultiScale(gray[y:y+h, x:x+w])
         st.write("Eye is open." if len(eyes) > 0 else "Eye is closed.")
+
