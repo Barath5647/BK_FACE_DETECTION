@@ -4,8 +4,14 @@ import numpy as np
 from tensorflow.keras.layers import InputLayer
 from tensorflow.keras.models import load_model
 from tensorflow.keras.mixed_precision import Policy
+from tensorflow.keras.mixed_precision import Policy as DTypePolicy
+from tensorflow.keras.utils import custom_object_scope
 from keras.utils import custom_object_scope
 from PIL import Image
+
+# register it so Keras can serialize/deserialize it
+from tensorflow.keras.utils import register_keras_serializable
+register_keras_serializable()(DTypePolicy)
 
 # --- Monkey-patch InputLayer to accept 'batch_shape' argument in TF 2.12+ ---
 _orig_init = InputLayer.__init__
