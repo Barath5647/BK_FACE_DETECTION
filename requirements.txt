@@ -1,8 +1,8 @@
 tensorflow-cpu==2.17.0
-numpy
+numpy==1.26.4
 streamlit==1.24.0
 opencv-python-headless==4.11.0.86
-Pillow
+Pillow==9.5.0
 scikit-learn==1.2.2
 mediapipe==0.10.7
 
