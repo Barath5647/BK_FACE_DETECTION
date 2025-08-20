@@ -21,10 +21,14 @@ CLASS_LABELS = ["Happy", "Sad", "Neutral", "Angry"]  # order must match training
 @st.cache_resource
 def get_model():
     try:
-        m = load_model(MODEL_PATH)
+        # load without trying to restore optimizer state
+        m = load_model(MODEL_PATH, compile=False)
+        # compile with a fresh optimizer (match training loss/metrics)
+        m.compile(optimizer=Adam(learning_rate=1e-4),
+                  loss="categorical_crossentropy",   # or the loss you used
+                  metrics=["accuracy"])
         return m
     except Exception as e:
-        # don't call st.error here (cache_resource may run before UI ready). Return None and handle in UI
         st.session_state.setdefault("_model_load_error", str(e))
         return None
 
