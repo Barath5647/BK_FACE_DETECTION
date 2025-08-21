@@ -29,4 +29,4 @@ if uploaded:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 2)
 
     st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB),
-             caption="Detected Faces", use_column_width=True)
+             caption="Detected Faces", use_container_width=True)
