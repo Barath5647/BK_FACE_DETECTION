@@ -1,5 +1,5 @@
 
-path: /content/drive/MyDrive/dataset
+path: dataset
 train: images/train
 val: images/val
 
