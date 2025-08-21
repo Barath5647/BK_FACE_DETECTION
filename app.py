@@ -7,7 +7,7 @@ from PIL import Image
 st.title("YOLO Face Detection (Fine-Tuned)")
 
 # Load fine-tuned model
-model = YOLO("/content/drive/MyDrive/face_yolo_best.pt")
+model = YOLO("face_yolo_best.pt")
 
 uploaded = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 
