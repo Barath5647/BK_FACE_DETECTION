@@ -9,7 +9,7 @@ model.train(
     epochs=50,           # adjust as needed
     imgsz=640,
     batch=16,
-    project="/content/drive/MyDrive/yolo_runs", 
+    project="yolo_runs", 
     name="face_yolo"
 )
 
