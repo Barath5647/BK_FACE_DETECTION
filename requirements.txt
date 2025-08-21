@@ -5,4 +5,9 @@ opencv-contrib-python-headless==4.11.0.86
 Pillow==9.5.0
 scikit-learn==1.2.2
 mediapipe==0.10.7
-
+ultralytics==8.3.182
+torch>=2.0
+torchvision
+pandas
+matplotlib
+seaborn
