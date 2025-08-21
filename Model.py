@@ -5,7 +5,7 @@ model = YOLO("yolov8n.pt")
 
 # Train on our dataset
 model.train(
-    data="/content/drive/MyDrive/faces.yaml",   # dataset config
+    data="faces.yaml",   # dataset config
     epochs=50,           # adjust as needed
     imgsz=640,
     batch=16,
